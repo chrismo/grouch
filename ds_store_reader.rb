@@ -8,6 +8,8 @@ class DsStoreReader
     self.new(File.open(File.expand_path('~/.Trash/.DS_Store'), 'rb') { |f| f.read })
   end
 
+  attr_reader :files
+
   def initialize(guts)
     @guts       = guts
     @files      = []
@@ -29,17 +31,33 @@ class DsStoreReader
 
   def parse
     init_index
-    i = 0
+    i            = 0
+    last_err_idx = -1
     begin
       loop do
         @files << next_file
         i += 1
-        # binding.pry if i == 49
         print '.' if i.divmod(100)[1] == 0
       end
+    rescue EofError => e
+      puts 'Done.'
+      return
     rescue => e
-      puts "Error on after file #{i}, record #{@record_inc}"
-      raise e
+      if @idx == last_err_idx
+        $stderr.puts 'Last move on attempt failed. Bumping idx by one.'
+        fast_forward(1)
+        retry
+      end
+
+      $stderr.puts [e.message, e.backtrace[0..2]].join("\n")
+      $stderr.puts "Error on after file #{i}, record #{@record_inc}, idx #{@idx}"
+      $stderr.puts "DUMP @idx-300..@idx-1:\n#{@guts[@idx-300..@idx-1].inspect}"
+      $stderr.puts "DUMP @idx..@idx+300:\n#{@guts[@idx..@idx+300].inspect}"
+      $stderr.puts '-' * 80
+
+      $stderr.puts 'Attempting to move on...'
+      last_err_idx = @idx
+      retry
     end
   end
 
@@ -53,36 +71,36 @@ class DsStoreReader
   end
 
   def next_file
-    begin
-      file = TrashedFile.new
+    file = TrashedFile.new
 
-      l_rec = nil
-      loop do
-        unknown_record = read_record
-        case unknown_record[:type]
-        when 'L'
-          l_rec = unknown_record
-          break
-        when 'N'
-          # not sure how often this happens yet
-          puts "Skipping extraneous 'N' record: #{unknown_record}"
-          next
-        else
-          raise "Unexpected '#{unknown_record[:type]} record: #{unknown_record}'"
-        end
+    l_rec = nil
+    loop do
+      unknown_record = read_record
+      case unknown_record[:type]
+      when 'L'
+        l_rec = unknown_record
+        break
+      when 'N'
+        # not sure how often this happens yet
+        puts "Skipping extraneous 'N' record: #{unknown_record}"
+        next
+      else
+        raise "Unexpected '#{unknown_record[:type]} record: #{unknown_record}'"
       end
-
-      n_rec = read_record
-    rescue CorruptionError => e
-      puts "ERROR: #{e.message}"
-      puts 'ERROR: presuming corruption and moving on past this bit:'
-      puts (@guts[0..(e.index_to_pick_up_at+4)]).inspect
-      fast_forward_to(e.index_to_pick_up_at)
-      retry
     end
+
+    n_rec = read_record
     raise 'Unexpected L record' unless l_rec[:type] == 'L'
     raise 'Unexpected N record' unless n_rec[:type] == 'N'
-    raise 'Unmatched L & N records' unless l_rec[:file_id] == n_rec[:file_id]
+    unless l_rec[:file_id] == n_rec[:file_id]
+      dump = [
+        "L file_id: #{l_rec[:file_id]}",
+        "N file_id: #{n_rec[:file_id]}",
+        "L file_id: #{l_rec[:file_id].inspect}",
+        "N file_id: #{n_rec[:file_id].inspect}",
+      ]
+      raise "Unmatched L & N records\n#{dump.join("\n")}"
+    end
 
     file.file_id  = l_rec[:file_id].empty? ? n_rec[:data] : l_rec[:file_id]
     file.filename = n_rec[:data]
@@ -101,7 +119,6 @@ class DsStoreReader
     data = read_string
 
     {file_id: file_id, data: data, type: header.type_char}.tap do |record|
-      p record
       @record_inc += 1
     end
   end
@@ -162,7 +179,7 @@ class DsStoreReader
 
   def fast_forward_to(idx)
     @idx = idx
-    raise 'EOF' unless @idx <= @guts.length
+    raise EofError, 'EOF' unless @idx <= @guts.length
   end
 end
 
@@ -189,7 +206,6 @@ class DataRange
   end
 
   def try_ascii(utf_16_string)
-    # p utf_16_string
     unpacked = utf_16_string.unpack('U*')
 
     one_byte_option = utf_16_string.length.even? && unpacked.each_slice(2).map(&:first).uniq == [0]
@@ -200,6 +216,9 @@ class DataRange
   end
 end
 
+class EofError < RuntimeError
+  # so low-rent
+end
 
 class CorruptionError < RuntimeError
   attr_reader :index_to_pick_up_at
@@ -208,8 +227,8 @@ class CorruptionError < RuntimeError
     super(message)
     @index_to_pick_up_at = index_to_pick_up_at
   end
-
 end
+
 
 class Fixnum
   def even?
@@ -218,5 +237,9 @@ class Fixnum
 end
 
 if __FILE__ == $0
-  DsStoreReader.read.parse
+  reader = DsStoreReader.read
+  reader.parse
+  File.open('files.txt', 'w') do |f|
+    reader.files.each { |file| f.puts file.inspect }
+  end
 end
