@@ -1,3 +1,4 @@
+gem 'minitest'
 require 'minitest/autorun'
 
 require_relative './ds_store_reader'

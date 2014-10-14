@@ -220,16 +220,6 @@ class EofError < RuntimeError
   # so low-rent
 end
 
-class CorruptionError < RuntimeError
-  attr_reader :index_to_pick_up_at
-
-  def initialize(message, index_to_pick_up_at)
-    super(message)
-    @index_to_pick_up_at = index_to_pick_up_at
-  end
-end
-
-
 class Fixnum
   def even?
     self.divmod(2)[1] == 0
