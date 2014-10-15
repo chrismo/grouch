@@ -88,8 +88,19 @@ class DsStoreReader
         l_rec = unknown_record
         break
       when 'N'
-        # not sure how often this happens yet
-        puts "Skipping extraneous 'N' record: #{unknown_record}"
+        # not sure why this happens, but best guess is that multiple
+        # N records all belong to the same location L record. Most
+        # of this analysis appears to support that. Though some of
+        # the 'extra' N records are odd. In one case, the file_id
+        # and filename were NOT similar (IOW, the file_id wasn't the
+        # filename plus some unique data).
+        #
+        # This whole method should probably be restructured to account
+        # for multiples.
+        $stderr.puts "Skipping extra 'N' record before idx #{@idx}"
+        $stderr.puts "Last file l_rec: #{@files.last.l_rec.inspect}"
+        $stderr.puts "Last file n_rec: #{@files.last.n_rec.inspect}"
+        $stderr.puts "    Extra n_rec: #{unknown_record}"
         next
       else
         raise "Unexpected '#{unknown_record[:type]} record: #{unknown_record}'"
@@ -97,8 +108,8 @@ class DsStoreReader
     end
 
     n_rec = read_record
-    raise 'Unexpected L record' unless l_rec[:type] == 'L'
-    raise 'Unexpected N record' unless n_rec[:type] == 'N'
+    raise "Unexpected L record of type #{l_rec[:type]}" unless l_rec[:type] == 'L'
+    raise "Unexpected N record of type #{n_rec[:type]}" unless n_rec[:type] == 'N'
     unless l_rec[:file_id] == n_rec[:file_id]
       dump = [
         "L file_id: #{l_rec[:file_id]}",
@@ -112,6 +123,9 @@ class DsStoreReader
     file.file_id = l_rec[:file_id].empty? ? n_rec[:data] : l_rec[:file_id]
     file.filename = n_rec[:data]
     file.path = l_rec[:data]
+
+    file.l_rec = l_rec
+    file.n_rec = n_rec
     file
   end
 
@@ -250,6 +264,7 @@ end
 
 class TrashedFile
   attr_accessor :file_id, :filename, :path
+  attr_accessor :l_rec, :n_rec  # debugging
 
   def original_path_filename
     File.join('/', @path, @filename)
