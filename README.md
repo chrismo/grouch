@@ -21,7 +21,7 @@ I still would like to investigate how the hell Google Drive's own Trash
 folder was apparently woefully inadequate[1]. Maybe half of several years
 worth of photos and videos were gone from online-land.
 
-The good news is I had my own local backups, and the (hopefully) good 
+The good news is I had my own local backups[2], and the (hopefully) good 
 news is the Google Drive clients on other machines made sure to deposit
 the now deleted-from-Google-Drive files into the local Recycle Bin 
 (Windows) and Trash (Mac) folders.
@@ -90,3 +90,6 @@ the `TrashedFile` instances I cared about - something like:
 [1] This folder hierarchy was shared by four accounts with mixed ownership
 and all over a period of months, I don't know if that contributed to the 
 problem. But still - I'm not trusting Google Drive for a while.
+
+[2] Not in Time Machine, though, I guess Google Drive client marks its
+folder to not be backed up? Don't even know if that's a thing.
