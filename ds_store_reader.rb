@@ -128,15 +128,23 @@ class DsStoreReader
     {file_id: file_id, data: data, type: header.type_char}.tap do |record|
       @record_inc += 1
     end
+  rescue FileIdHeaderInDataError => e
+    # there's a good chance there's data I'm just missing that would direct
+    # me past this sort of thing, but, for now, just trying to get the bulk
+    # of the data here.
+    $stderr.puts "Possible garbage at idx #{@idx}, file_id_header within string data."
+    $stderr.puts e.message
+    fast_forward(1)
+    retry
   end
 
-  def read_string(idx=@idx)
+  def read_string
     s = ''
 
-    fast_forward_to(idx)
+    fast_forward_to(@idx)
     loop do
       r = data_range(4, len: read_length)
-      s << r.extract_from
+      s << r.extract_string
 
       fast_forward_to(r.dst + 1)
 
@@ -152,7 +160,7 @@ class DsStoreReader
 
   def read_length
     len_range = data_range(0, len: 4)
-    (len_range.extract_bytes_from.unpack('N')[0]) * 2
+    (len_range.extract_bytes.unpack('N')[0]) * 2
   end
 
   def read_header(headers=@all_headers)
@@ -172,7 +180,7 @@ class DsStoreReader
   end
 
   def peek_header
-    bytes = data_range(0, len: 4).extract_bytes_from
+    bytes = data_range(0, len: 4).extract_bytes
     @all_headers.detect { |h| bytes =~ h.pattern }
   end
 
@@ -204,27 +212,34 @@ class DataRange
     (@dst - @src) + 1
   end
 
-  def extract_bytes_from
+  def extract_bytes
     @s[@src..@dst]
   end
 
-  def extract_from
-    try_ascii(extract_bytes_from)
+  def extract_string
+    try_ascii(extract_bytes)
   end
 
   def try_ascii(utf_16_string)
     unpacked = utf_16_string.unpack('U*')
 
     one_byte_option = utf_16_string.length.even? && unpacked.each_slice(2).map(&:first).uniq == [0]
-    one_byte_option ? unpacked.each_slice(2).map(&:last).map(&:chr).join : utf_16_string
-  rescue => e
-    puts utf_16_string.inspect
-    raise e
+    result = one_byte_option ? unpacked.each_slice(2).map(&:last).map(&:chr).join : utf_16_string
+
+    if result =~ /#{"\x00\x00"}/
+      raise FileIdHeaderInDataError, utf_16_string.inspect
+    end
+
+    result
   end
 end
 
 class EofError < RuntimeError
   # so low-rent
+end
+
+class FileIdHeaderInDataError < RuntimeError
+
 end
 
 class Fixnum
