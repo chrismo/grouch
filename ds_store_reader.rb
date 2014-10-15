@@ -11,13 +11,13 @@ class DsStoreReader
   attr_reader :files
 
   def initialize(guts)
-    @guts       = guts
-    @files      = []
+    @guts = guts
+    @files = []
     @record_inc = 0
-    @idx        = 0
+    @idx = 0
 
     @file_id_header = OpenStruct.new(pattern: /#{"\x00\x00\x00[^\x00]"}/)
-    @ustr_header    = OpenStruct.new(pattern: /ustr/)
+    @ustr_header = OpenStruct.new(pattern: /ustr/)
     @file_path_type = OpenStruct.new(pattern: /ptbL/, type_char: 'L')
     @file_name_type = OpenStruct.new(pattern: /ptbN/, type_char: 'N')
 
@@ -29,9 +29,20 @@ class DsStoreReader
     ]
   end
 
+  # isn't definitive since only grepping on presence of period in filename :|
+  def missing_original_dirs
+    @files.select { |tf| tf.filename !~ /\./ && !File.exists?(tf.original_path_filename) }
+  end
+
+  def missing_original_dir_with_parent_present
+    missing_original_dirs.select do |tf|
+      File.exists?(tf.parent_dir)
+    end
+  end
+
   def parse
     init_index
-    i            = 0
+    i = 0
     last_err_idx = -1
     begin
       loop do
@@ -66,10 +77,6 @@ class DsStoreReader
     fast_forward_to(idx + 1)
   end
 
-  class TrashedFile
-    attr_accessor :file_id, :filename, :path
-  end
-
   def next_file
     file = TrashedFile.new
 
@@ -102,9 +109,9 @@ class DsStoreReader
       raise "Unmatched L & N records\n#{dump.join("\n")}"
     end
 
-    file.file_id  = l_rec[:file_id].empty? ? n_rec[:data] : l_rec[:file_id]
+    file.file_id = l_rec[:file_id].empty? ? n_rec[:data] : l_rec[:file_id]
     file.filename = n_rec[:data]
-    file.path     = l_rec[:data]
+    file.path = l_rec[:data]
     file
   end
 
@@ -187,10 +194,10 @@ class DataRange
   attr_accessor :src, :dst
 
   def initialize(s, offset, start, opts)
-    @s      = s
+    @s = s
     @offset = offset
-    @src    = offset + start
-    @dst    = offset + (opts[:dst] || (start + opts[:len] - 1))
+    @src = offset + start
+    @dst = offset + (opts[:dst] || (start + opts[:len] - 1))
   end
 
   def length
@@ -225,6 +232,50 @@ class Fixnum
     self.divmod(2)[1] == 0
   end
 end
+
+class TrashedFile
+  attr_accessor :file_id, :filename, :path
+
+  def original_path_filename
+    File.join('/', @path, @filename)
+  end
+
+  def parent_dir
+    File.dirname(original_path_filename)
+  end
+
+  def trash_path_filename
+    File.expand_path("~/.Trash/#{@file_id}")
+  end
+
+  def mv_command
+    rename = if @file_id != @filename
+               restored_name = File.join(parent_dir, @file_id)
+               final_name = File.join(parent_dir, @filename)
+               "&& mv '#{restored_name}' '#{final_name}'"
+             else
+               ''
+             end
+    open = "&& open '#{parent_dir}'"
+    "mv '#{trash_path_filename}' '#{parent_dir}' #{rename} #{open}"
+  end
+
+  # this will NOT update .DS_Store ...
+  def restore(for_realz=false, open_finder=false)
+    noop = !for_realz
+    FileUtils.makedirs parent_dir, :verbose => true, :noop => noop unless File.exists? parent_dir
+    FileUtils.move trash_path_filename, parent_dir, :force => false, :verbose => true, :noop => noop
+    if @file_id != @filename
+      restored_name = File.join(parent_dir, @file_id)
+      final_name = File.join(parent_dir, @filename)
+      FileUtils.move restored_name, final_name, :force => false, :verbose => true, :noop => noop
+    end
+    `open '#{parent_dir}'` unless noop || !open_finder
+  rescue => e
+    $stderr.puts "*** #{e.message}"
+  end
+end
+
 
 if __FILE__ == $0
   reader = DsStoreReader.read
