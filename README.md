@@ -67,8 +67,24 @@ studying how to do things like this properly in school, I was
 studying jazz, but it helped me Put Back the vast majority of my
 disaster, and now I'm sharing it with y'all.
 
+## Usage
 
+Just fire up the script with `ruby ds_store_reader.rb`. A bunch of
+stderr output will likely occur and a files.txt file will be 
+written. 
 
+Files.txt isn't really consumed by anything, just there for 
+reference really. 
+
+What _I_ would do at this point, is then fire this up in a Pry
+session, and once the `#parse` method was done, iterate over the
+`files` of the `DsStoreReader` and call the `restore` method on
+the `TrashedFile` instances I cared about - something like:
+```
+[1] pry(main)> @reader.files.select { |tf| tf.path =~ /Google Drive\/Pictures/ }.each {|tf| tf.restore(true); }
+```
+
+---
 
 
 [1] This folder hierarchy was shared by four accounts with mixed ownership
